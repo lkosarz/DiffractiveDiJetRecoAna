@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <utility>
+#include <map>
 
 #include "fmt/core.h"
 
@@ -68,6 +70,7 @@
 #include "edm4eic/CalorimeterHit.h"
 #include "edm4eic/CalorimeterHitObj.h"
 
+#include "fastjet/ClusterSequence.hh"
 
 #include <edm4eic/vector_utils_legacy.h>
 #include <edm4hep/Vector3f.h>
@@ -86,8 +89,9 @@
 #include "FileList.h"
 #include "HistogramsReco.h"
 #include "HistogramsRecoClusters.h"
+#include "HistogramsJets.h"
 #include "BasicUtil.h"
-#include "EICutil.h"
+//#include "EICutil.h"
 
 #pragma link C++ class vector<edm4hep::MCParticleData>+;
 #pragma link C++ class vector<eicd::ClusterData>+;
@@ -155,9 +159,10 @@ int readFrameRootReco(TString list, TString ofname, long nevents)
 	TFile *output = new TFile(ofname, "recreate");
 	output->cd();
 
+
 	CreateHistogamsReco();
 	CreateHistogamsRecoClusters();
-
+	CreateHistogramsJets();
 
 	if(nevents>0) nEvents = nevents;
 
@@ -230,6 +235,21 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 	int nMCpart_gen = 0;
 	int nMCpart_sec = 0;
 
+	// create a jet definition:
+	// a jet algorithm with a given radius parameter
+	//----------------------------------------------------------
+	double R = 1.0;
+	double p = -1.0;
+	fastjet::JetDefinition jet_def(fastjet::antikt_algorithm, R);
+	//fastjet::JetDefinition jet_def(fastjet::ee_kt_algorithm);
+	//fastjet::JetDefinition jet_def(fastjet::ee_genkt_algorithm, R, p);
+	//fastjet::JetDefinition jet_def_meas(fastjet::ee_kt_algorithm);
+
+	vector<fastjet::PseudoJet> input_particles;
+	vector<fastjet::PseudoJet> input_particles_meas;
+	vector<fastjet::PseudoJet> input_particles_meas_no_nHCal;
+
+
 
 	h_Events->Fill(1.0);
 
@@ -290,6 +310,15 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 			cout<<"MCParticle py = "<<mcMom.y()<<endl;
 			cout<<"MCParticle pz = "<<mcMom.z()<<endl;
 		}
+
+
+
+		// read in input particles
+		//----------------------------------------------------------
+		input_particles.push_back(fastjet::PseudoJet(mcMom.x(),mcMom.y(),mcMom.z(),mcpart.getEnergy()));
+		//cout<<"input_particles add = "<<i<<endl;
+
+
 
 		h_MCpart_mass->Fill(mcpart.getMass());
 		h_MCpart_charge->Fill(mcpart.getCharge());
@@ -658,6 +687,43 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 		} // HcalEndcapNTruthClusters loop
 
 	    //loop over one cluster, and inner loop with all other clusters nad check distances
+
+
+
+		// JETS ////////////////////////////////////////////////////////////////
+
+
+	    // run the jet clustering with the above jet definition
+	    //----------------------------------------------------------
+	    fastjet::ClusterSequence clust_seq(input_particles, jet_def);
+	    fastjet::ClusterSequence clust_seq_meas(input_particles_meas, jet_def);
+	    fastjet::ClusterSequence clust_seq_meas_no_nHCal(input_particles_meas_no_nHCal, jet_def);
+
+
+	    // get the resulting jets ordered in pt
+	    //----------------------------------------------------------
+	    double ptmin = 4.0; // 5.0 [GeV/c]
+	    double Emin = 0.0; // 5.0 [GeV/c]
+	    vector<fastjet::PseudoJet> inclusive_jets_unsorted;
+	    vector<fastjet::PseudoJet> measured_jets_unsorted;
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal_unsorted;
+
+	    vector<fastjet::PseudoJet> inclusive_jets;
+	    vector<fastjet::PseudoJet> measured_jets;
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal;
+
+	    //vector<fastjet::PseudoJet> inclusive_jets = sorted_by_pt(clust_seq.inclusive_jets(ptmin));
+	    //inclusive_jets = sorted_by_E(clust_seq.inclusive_jets(ptmin));
+	    //measured_jets = sorted_by_E(clust_seq_meas.inclusive_jets(ptmin));
+
+	    vector<fastjet::PseudoJet> inclusive_jets_precut = sorted_by_E(clust_seq.inclusive_jets(ptmin));
+	    vector<fastjet::PseudoJet> measured_jets_precut = sorted_by_E(clust_seq_meas.inclusive_jets(ptmin));
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal_precut = sorted_by_E(clust_seq_meas_no_nHCal.inclusive_jets(ptmin));
+
+
+
+
+
 
 	return 1;
 

@@ -5,4 +5,5 @@ output/data/*.root
 output/output/
 output/outputSpectra/
 output/outputClu/
+S3setup.sh
 
