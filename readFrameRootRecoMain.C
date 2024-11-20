@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <utility>
+#include <map>
 
 #include "fmt/core.h"
 
@@ -68,6 +70,7 @@
 #include "edm4eic/CalorimeterHit.h"
 #include "edm4eic/CalorimeterHitObj.h"
 
+#include "fastjet/ClusterSequence.hh"
 
 #include <edm4eic/vector_utils_legacy.h>
 #include <edm4hep/Vector3f.h>
@@ -86,8 +89,9 @@
 #include "FileList.h"
 #include "HistogramsReco.h"
 #include "HistogramsRecoClusters.h"
+#include "HistogramsJets.h"
 #include "BasicUtil.h"
-#include "EICutil.h"
+//#include "EICutil.h"
 
 #pragma link C++ class vector<edm4hep::MCParticleData>+;
 #pragma link C++ class vector<eicd::ClusterData>+;
@@ -117,6 +121,7 @@ using namespace TMath;
 //using namespace eicd;
 using namespace edm4eic;
 //using namespace edm4hep;
+using namespace fastjet;
 
 int readFrameRootReco(TString list = "data/test.list", TString ofname = "output/output_test.root", long nevents = -1);
 int MakeEvent(podio::ROOTReader *reader, unsigned ev);
@@ -162,9 +167,10 @@ int readFrameRootReco(TString list, TString ofname, long nevents)
 	TFile *output = new TFile(ofname, "recreate");
 	output->cd();
 
+
 	CreateHistogamsReco();
 	CreateHistogamsRecoClusters();
-
+	CreateHistogramsJets();
 
 	if(nevents>0) nEvents = nevents;
 
@@ -220,6 +226,15 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 	auto& nHCal_Cluster_Rec_coll = frame.get<edm4eic::ClusterCollection>("HcalEndcapNClusters");
 	auto& nHCal_Cluster_MC_coll = frame.get<edm4eic::ClusterCollection>("HcalEndcapNTruthClusters");
 
+	int nPartFinal = 0;
+	int nPartonsOut = 0;
+	int iParton_1 = 0;
+	int iParton_2 = 0;
+
+	bool Parton_1_inAcc = false;
+	bool Parton_2_inAcc = false;
+
+	int nJetsInAcc = 0;
 
 	int nPion_p = 0;
 	int nPion_n = 0;
@@ -237,6 +252,23 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 	int nMCpart_gen = 0;
 	int nMCpart_sec = 0;
 
+	// create a jet definition:
+	// a jet algorithm with a given radius parameter
+	//----------------------------------------------------------
+	double R = 1.0;
+	double p = -1.0;
+	fastjet::JetDefinition jet_def(fastjet::antikt_algorithm, R);
+	//fastjet::JetDefinition jet_def(fastjet::ee_kt_algorithm);
+	//fastjet::JetDefinition jet_def(fastjet::ee_genkt_algorithm, R, p);
+	//fastjet::JetDefinition jet_def_meas(fastjet::ee_kt_algorithm);
+
+	vector<fastjet::PseudoJet> input_particles;
+	vector<fastjet::PseudoJet> input_particles_meas;
+	vector<fastjet::PseudoJet> input_particles_meas_nHCal;
+	vector<fastjet::PseudoJet> input_particles_meas_no_nHCal;
+
+
+	cout<<"Starting!"<<endl;
 
 	h_Events->Fill(1.0);
 
@@ -286,7 +318,7 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 		if(mcpart.getGeneratorStatus()!=1) continue; // select primaries, reject secondaries
 		//if(mcpart.getGeneratorStatus()!=0) continue; // select secondaries, reject primaries
 		//if(mcMom.Eta()<-4.0 ||  mcMom.Eta()>-1.0)	continue;
-		if(mcMom.Eta()<-4.14 ||  mcMom.Eta()>-1.18)	continue;
+		//if(mcMom.Eta()<-4.14 ||  mcMom.Eta()>-1.18)	continue;
 		//if(mcEnd.z()>-3250)	continue;
 
 		nMCpart++;
@@ -297,6 +329,15 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 			cout<<"MCParticle py = "<<mcMom.y()<<endl;
 			cout<<"MCParticle pz = "<<mcMom.z()<<endl;
 		}
+
+
+
+		// read in input particles
+		//----------------------------------------------------------
+		input_particles.push_back(fastjet::PseudoJet(mcMom.x(),mcMom.y(),mcMom.z(),mcpart.getEnergy()));
+		//cout<<"input_particles add = "<<i<<endl;
+
+
 
 		h_MCpart_mass->Fill(mcpart.getMass());
 		h_MCpart_charge->Fill(mcpart.getCharge());
@@ -536,6 +577,11 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 			h_nHCal_hit_pos_z->Fill(hit_nHCal.getPosition().z);
 			h_nHCal_hit_pos_xy->Fill(hit_nHCal.getPosition().x, hit_nHCal.getPosition().y);
 
+			double rxy_hit = sqrt(hit_nHCal.getPosition().x*hit_nHCal.getPosition().x + hit_nHCal.getPosition().y*hit_nHCal.getPosition().y);
+
+
+			h_nHCal_hit_pos_rE->Fill(rxy_hit, hit_nHCal.getEnergy());
+
 		} // HcalEndcapNHits loop
 
 
@@ -560,6 +606,10 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 			h_nHCal_cluster_Rec_pos_y->Fill(cluster_nHCal_Rec.getPosition().y);
 			h_nHCal_cluster_Rec_pos_z->Fill(cluster_nHCal_Rec.getPosition().z);
 			h_nHCal_cluster_Rec_pos_xy->Fill(cluster_nHCal_Rec.getPosition().x, cluster_nHCal_Rec.getPosition().y);
+
+			double rxy = sqrt(cluster_nHCal_Rec.getPosition().x*cluster_nHCal_Rec.getPosition().x + cluster_nHCal_Rec.getPosition().y*cluster_nHCal_Rec.getPosition().y);
+
+			h_nHCal_cluster_Rec_pos_rE->Fill(rxy, cluster_nHCal_Rec.getEnergy());
 
 	        for (unsigned clu_iter2 = 0; clu_iter2 < nHCal_Cluster_Rec_coll.size(); ++clu_iter2) {
 
@@ -606,6 +656,10 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 			h_nHCal_cluster_MC_pos_z->Fill(cluster_nHCal_MC.getPosition().z);
 			h_nHCal_cluster_MC_pos_xy->Fill(cluster_nHCal_MC.getPosition().x, cluster_nHCal_MC.getPosition().y);
 
+			double rxy = sqrt(cluster_nHCal_MC.getPosition().x*cluster_nHCal_MC.getPosition().x + cluster_nHCal_MC.getPosition().y*cluster_nHCal_MC.getPosition().y);
+
+			h_nHCal_cluster_MC_pos_rE->Fill(rxy, cluster_nHCal_MC.getEnergy());
+
 	        for (unsigned clu_iter2 = 0; clu_iter2 < nHCal_Cluster_MC_coll.size(); ++clu_iter2) {
 
 				edm4eic::Cluster cluster2_nHCal_MC =  nHCal_Cluster_MC_coll.at(clu_iter2);
@@ -626,6 +680,25 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 
 	        }
 
+	        auto MCclu_hit_contribs = cluster_nHCal_MC.getHitContributions();
+
+	        for (int ihitc = 0; ihitc < MCclu_hit_contribs.size(); ++ihitc) {
+
+	        	//edm4hep::CaloHitContribution MCclu_hit_cont = MCclu_hit_contribs.at(ihitc);
+	        	auto MCclu_hit_cont = MCclu_hit_contribs.at(ihitc);
+
+	        	//h_nHCal_cluster_MC_hitContribs_pos_xy->Fill(MCclu_hit_cont.getStepPosition().x, MCclu_hit_cont.getStepPosition().y);
+			}
+
+	        auto MCclu_hits = cluster_nHCal_MC.getHits();
+
+	        for (int ihit = 0; ihit < MCclu_hits.size(); ++ihit) {
+
+	        	edm4eic::CalorimeterHit MCclu_hit =  MCclu_hits.at(ihit);
+
+	        	h_nHCal_cluster_MC_hits_pos_xy->Fill(MCclu_hit.getPosition().x, MCclu_hit.getPosition().y);
+			}
+
 	     //loop over all other clusters, fill histograms with distances between typical clusters (do same for reco)
 	     //eventually loop at distances of clusters from neutrons, with all other clusters
 	     //look into associations objects in the tree
@@ -633,6 +706,438 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 		} // HcalEndcapNTruthClusters loop
 
 	    //loop over one cluster, and inner loop with all other clusters nad check distances
+
+
+
+		// JETS ////////////////////////////////////////////////////////////////
+
+
+	    // run the jet clustering with the above jet definition
+	    //----------------------------------------------------------
+	    fastjet::ClusterSequence clust_seq(input_particles, jet_def);
+	    fastjet::ClusterSequence clust_seq_meas(input_particles_meas, jet_def);
+	    fastjet::ClusterSequence clust_seq_meas_nHCal(input_particles_meas_nHCal, jet_def);
+	    fastjet::ClusterSequence clust_seq_meas_no_nHCal(input_particles_meas_no_nHCal, jet_def);
+
+
+	    // get the resulting jets ordered in pt
+	    //----------------------------------------------------------
+	    double ptmin = 4.0; // 5.0 [GeV/c]
+	    double Emin = 0.0; // 5.0 [GeV/c]
+	    vector<fastjet::PseudoJet> inclusive_jets_unsorted;
+	    vector<fastjet::PseudoJet> measured_jets_unsorted;
+	    vector<fastjet::PseudoJet> measured_jets_nHCal_unsorted;
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal_unsorted;
+
+	    vector<fastjet::PseudoJet> inclusive_jets;
+	    vector<fastjet::PseudoJet> measured_jets;
+	    vector<fastjet::PseudoJet> measured_jets_nHCal;
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal;
+
+	    //vector<fastjet::PseudoJet> inclusive_jets = sorted_by_pt(clust_seq.inclusive_jets(ptmin));
+	    //inclusive_jets = sorted_by_E(clust_seq.inclusive_jets(ptmin));
+	    //measured_jets = sorted_by_E(clust_seq_meas.inclusive_jets(ptmin));
+
+	    vector<fastjet::PseudoJet> inclusive_jets_precut = sorted_by_E(clust_seq.inclusive_jets(ptmin));
+	    vector<fastjet::PseudoJet> measured_jets_precut = sorted_by_E(clust_seq_meas.inclusive_jets(ptmin));
+	    vector<fastjet::PseudoJet> measured_jets_nHCal_precut = sorted_by_E(clust_seq_meas_nHCal.inclusive_jets(ptmin));
+	    vector<fastjet::PseudoJet> measured_jets_no_nHCal_precut = sorted_by_E(clust_seq_meas_no_nHCal.inclusive_jets(ptmin));
+
+
+
+	    // apply energy cut
+	    for (int i = 0; i < inclusive_jets_precut.size(); ++i)
+	    {
+			fastjet::PseudoJet jet = inclusive_jets_precut[i];
+
+			if(jet.E()<Emin) continue;
+
+			if(jet.eta()>=-4.14 &&  jet.eta()<=4.2) nJetsInAcc++;
+
+			inclusive_jets_unsorted.push_back(jet);
+		}
+
+	    for (int i = 0; i < measured_jets_precut.size(); ++i)
+	    {
+			fastjet::PseudoJet jet = measured_jets_precut[i];
+
+			if(jet.E()<Emin) continue;
+
+			measured_jets_unsorted.push_back(jet);
+		}
+
+	    for (int i = 0; i < measured_jets_nHCal_precut.size(); ++i)
+	    {
+			fastjet::PseudoJet jet = measured_jets_nHCal_precut[i];
+
+			if(jet.E()<Emin) continue;
+
+			measured_jets_nHCal_unsorted.push_back(jet);
+		}
+
+	    for (int i = 0; i < measured_jets_no_nHCal_precut.size(); ++i)
+	    {
+			fastjet::PseudoJet jet = measured_jets_no_nHCal_precut[i];
+
+			if(jet.E()<Emin) continue;
+
+			measured_jets_no_nHCal_unsorted.push_back(jet);
+		}
+
+	    // sort jets vs. energy
+	/*
+	    inclusive_jets = sorted_by_E(inclusive_jets_unsorted);
+	    measured_jets = sorted_by_E(measured_jets_unsorted);
+	    measured_jets_nHCal = sorted_by_E(measured_jets_nHCal_unsorted);
+	    measured_jets_no_nHCal = sorted_by_E(measured_jets_no_nHCal_unsorted);
+	    */
+
+	    // sort jets vs. pT
+	    inclusive_jets = sorted_by_pt(inclusive_jets_unsorted);
+	    measured_jets = sorted_by_pt(measured_jets_unsorted);
+	    measured_jets_nHCal = sorted_by_pt(measured_jets_nHCal_unsorted);
+	    measured_jets_no_nHCal = sorted_by_pt(measured_jets_no_nHCal_unsorted);
+
+		//cout<<"inclusive_jets size = "<<inclusive_jets.size()<<endl;
+		//cout<<"measured_jets size = "<<measured_jets.size()<<endl;
+
+
+
+		h_Event_nJets->Fill(inclusive_jets.size());
+		h_Event_nJets_meas->Fill(measured_jets.size());
+		h_Event_nJets_meas_nHCal->Fill(measured_jets_nHCal.size());
+		h_Event_nJets_meas_no_nHCal->Fill(measured_jets_no_nHCal.size());
+
+		// summary
+		bool anyHcal_jets = false;
+		bool anyHcal_jets_meas = false;
+		bool anyHcal_jets_meas_nHCal = false;
+		bool anyHcal_jets_meas_no_nHCal = false;
+		bool bHCalJet = false;
+		bool bHCalJet_meas = false;
+		int nHCal_jets = 0;
+		int nHCal_jets_meas = 0;
+
+/*		//int nHCal_jets = FillHCals(h_Event_HCal_jets, hist_eta_energy_tmp, hist_eta_energy_denom_tmp, anyHcal_jets);
+		FillHCalsJets(h_Event_HCal_jets, inclusive_jets);
+		FillHCalsJets(h_Event_HCal_jets_meas, measured_jets);
+		FillHCalsJets(h_Event_HCal_jets_meas_nHCal, measured_jets_nHCal);
+		FillHCalsJets(h_Event_HCal_jets_meas_no_nHCal, measured_jets_no_nHCal);
+
+		FillHCalsJetsShare(h_Event_HCal_jets_meas_full, measured_jets);
+*/
+
+		for (unsigned int i = 0; i < inclusive_jets.size(); i++) {
+
+			fastjet::PseudoJet jet = inclusive_jets[i];
+
+			int HCal_id = 0; // none = 0, nHCal = 1, bHCal = 2, LFHCAL = 3
+
+			// nHCal
+			if(-4.14 < jet.eta() && jet.eta() < -1.18)
+			{
+				anyHcal_jets = true;
+				nHCal_jets++;
+				HCal_id = 1;
+			}
+
+			// bHCal
+			if(-1.1 < jet.eta() && jet.eta() < 1.1)
+			{
+				anyHcal_jets = true;
+				bHCalJet = true;
+				HCal_id = 2;
+			}
+
+			// LFHCal
+			if(1.2 < jet.eta() && jet.eta() < 4.2)
+			{
+				anyHcal_jets = true;
+				HCal_id = 3;
+			}
+
+
+			double jet_p = sqrt(jet.pt2()+jet.pz()*jet.pz());
+
+			h_Jet_nPart->Fill(jet.constituents().size());
+			h_Jet_mass->Fill(jet.m());
+		    //h_Jet_charge->Fill(jet.m());
+			h_Jet_E->Fill(jet.E());
+			h_Jet_p->Fill(jet_p);
+			h_Jet_pT->Fill(jet.pt());
+			h_Jet_eta->Fill(jet.eta());
+
+
+			for (unsigned int j = i; j < inclusive_jets.size(); j++) {
+
+				if(i==j) continue;
+
+				fastjet::PseudoJet jet2 = inclusive_jets[j];
+
+				h_Jet_deta->Fill(jet.eta()-jet2.eta());
+			}
+
+			vector<PseudoJet> constituents = jet.constituents();
+
+			for (int j = 0; j < constituents.size(); ++j) {
+
+				if(bHCalJet) h_Jet_bHCal_part_eta->Fill(constituents[j].eta());
+				h_Jet_HCal_part_eta->Fill(constituents[j].eta(), HCal_id);
+			}
+
+		} // inclusive_jets
+
+		for (unsigned int i = 0; i < measured_jets.size(); i++) {
+
+			fastjet::PseudoJet jet = measured_jets[i];
+
+			int HCal_meas_id = 0; // none = 0, nHCal = 1, bHCal = 2, LFHCAL = 3
+
+			// nHCal
+			if(-4.14 < jet.eta() && jet.eta() < -1.18)
+			{
+				anyHcal_jets_meas = true;
+				nHCal_jets_meas++;
+				HCal_meas_id = 1;
+			}
+
+			// bHCal
+			if(-1.1 < jet.eta() && jet.eta() < 1.1)
+			{
+				anyHcal_jets_meas = true;
+				bHCalJet_meas = true;
+				HCal_meas_id = 2;
+			}
+
+			// LFHCal
+			if(1.2 < jet.eta() && jet.eta() < 4.2)
+			{
+				anyHcal_jets_meas = true;
+				HCal_meas_id = 3;
+			}
+
+		double jet_p = sqrt(jet.pt2()+jet.pz()*jet.pz());
+
+		h_Jet_meas_nPart->Fill(jet.constituents().size());
+		h_Jet_meas_mass->Fill(jet.m());
+	    //h_Jet_meas_charge->Fill(jet.m());
+		h_Jet_meas_E->Fill(jet.E());
+		h_Jet_meas_p->Fill(jet_p);
+		h_Jet_meas_pT->Fill(jet.pt());
+		h_Jet_meas_eta->Fill(jet.eta());
+
+		for (unsigned int j = i; j < measured_jets.size(); j++) {
+
+			if(i==j) continue;
+
+			fastjet::PseudoJet jet2 = measured_jets[j];
+
+			h_Jet_meas_deta->Fill(jet.eta()-jet2.eta());
+		}
+
+
+		vector<PseudoJet> measured_constituents = jet.constituents();
+
+		for (int j = 0; j < measured_constituents.size(); ++j) {
+
+			if(bHCalJet) h_Jet_meas_bHCal_part_eta->Fill(measured_constituents[j].eta());
+			h_Jet_meas_HCal_part_eta->Fill(measured_constituents[j].eta(), HCal_meas_id);
+		}
+	} // meas_jets
+
+
+
+
+		for (unsigned int i = 0; i < measured_jets_nHCal.size(); i++) {
+
+			fastjet::PseudoJet jet = measured_jets_nHCal[i];
+
+			int HCal_meas_id = 0; // none = 0, nHCal = 1, bHCal = 2, LFHCAL = 3
+/*
+			// nHCal
+			if(-4.14 < jet.eta() && jet.eta() < -1.18)
+			{
+				anyHcal_jets_meas = true;
+				nHCal_jets_meas++;
+				HCal_meas_id = 1;
+			}
+
+			// bHCal
+			if(-1.1 < jet.eta() && jet.eta() < 1.1)
+			{
+				anyHcal_jets_meas = true;
+				bHCalJet_meas = true;
+				HCal_meas_id = 2;
+			}
+
+			// LFHCal
+			if(1.2 < jet.eta() && jet.eta() < 4.2)
+			{
+				anyHcal_jets_meas = true;
+				HCal_meas_id = 3;
+			}*/
+
+		double jet_p = sqrt(jet.pt2()+jet.pz()*jet.pz());
+
+		h_Jet_meas_nHCal_nPart->Fill(jet.constituents().size());
+		h_Jet_meas_nHCal_mass->Fill(jet.m());
+	    //h_Jet_meas_nHCal_charge->Fill(jet.m());
+		h_Jet_meas_nHCal_E->Fill(jet.E());
+		h_Jet_meas_nHCal_p->Fill(jet_p);
+		h_Jet_meas_nHCal_pT->Fill(jet.pt());
+		h_Jet_meas_nHCal_eta->Fill(jet.eta());
+
+		for (unsigned int j = i; j < measured_jets_nHCal.size(); j++) {
+
+			if(i==j) continue;
+
+			fastjet::PseudoJet jet2 = measured_jets_nHCal[j];
+
+			h_Jet_meas_nHCal_deta->Fill(jet.eta()-jet2.eta());
+		}
+
+
+		vector<PseudoJet> measured_constituents = jet.constituents();
+
+		for (int j = 0; j < measured_constituents.size(); ++j) {
+
+			if(bHCalJet) h_Jet_meas_bHCal_part_eta->Fill(measured_constituents[j].eta());
+			h_Jet_meas_HCal_part_eta->Fill(measured_constituents[j].eta(), HCal_meas_id);
+		}
+	} // meas_jets_nHCal
+
+
+
+	for (unsigned int i = 0; i < measured_jets_no_nHCal.size(); i++) {
+
+		fastjet::PseudoJet jet = measured_jets_no_nHCal[i];
+
+		//int HCal_meas_id = 0; // none = 0, nHCal = 1, bHCal = 2, LFHCAL = 3
+/*
+		// nHCal
+		if(-4.14 < jet.eta() && jet.eta() < -1.18)
+		{
+			anyHcal_jets_meas = true;
+			nHCal_jets_meas++;
+			HCal_meas_id = 1;
+		}*/
+
+		// bHCal
+		if(-1.1 < jet.eta() && jet.eta() < 1.1)
+		{
+			anyHcal_jets_meas_no_nHCal = true;
+			//bHCalJet_meas = true;
+			//HCal_meas_id = 2;
+		}
+
+		// LFHCal
+		if(1.2 < jet.eta() && jet.eta() < 4.2)
+		{
+			anyHcal_jets_meas_no_nHCal = true;
+			//HCal_meas_id = 3;
+		}
+
+
+		double jet_p = sqrt(jet.pt2()+jet.pz()*jet.pz());
+
+		h_Jet_meas_no_nHCal_nPart->Fill(jet.constituents().size());
+		h_Jet_meas_no_nHCal_mass->Fill(jet.m());
+	    //h_Jet_meas_no_nHCal_charge->Fill(jet.m());
+		h_Jet_meas_no_nHCal_E->Fill(jet.E());
+		h_Jet_meas_no_nHCal_p->Fill(jet_p);
+		h_Jet_meas_no_nHCal_pT->Fill(jet.pt());
+		h_Jet_meas_no_nHCal_eta->Fill(jet.eta());
+
+	} // measured_jets_no_nHCal
+
+
+
+
+	// jets ------------------
+
+	if(inclusive_jets.size() >= 2)
+	{
+
+		fastjet::PseudoJet jet1 = inclusive_jets[0];
+		fastjet::PseudoJet jet2 = inclusive_jets[1];
+
+		double jet1_p = sqrt(jet1.pt2()+jet1.pz()*jet1.pz());
+		double jet2_p = sqrt(jet2.pt2()+jet2.pz()*jet2.pz());
+
+		h_Jets_eta->Fill(jet1.eta(), jet2.eta());
+		h_Jets_phi->Fill(jet1.phi(), jet2.phi());
+		h_Jets_p->Fill(jet1_p, jet2_p);
+		h_Jets_pT->Fill(jet1.pt(), jet2.pt());
+		h_Jets_E->Fill(jet1.E(), jet2.E());
+	}
+
+	if(measured_jets.size() >= 2)
+	{
+		h_Jets_meas_eta->Fill(measured_jets[0].eta(), measured_jets[1].eta());
+
+		fastjet::PseudoJet jet1 = measured_jets[0];
+		fastjet::PseudoJet jet2 = measured_jets[1];
+
+		double jet1_p = sqrt(jet1.pt2()+jet1.pz()*jet1.pz());
+		double jet2_p = sqrt(jet2.pt2()+jet2.pz()*jet2.pz());
+
+		h_Jets_meas_eta->Fill(jet1.eta(), jet2.eta());
+		h_Jets_meas_phi->Fill(jet1.phi(), jet2.phi());
+		h_Jets_meas_p->Fill(jet1_p, jet2_p);
+		h_Jets_meas_pT->Fill(jet1.pt(), jet2.pt());
+		h_Jets_meas_E->Fill(jet1.E(), jet2.E());
+	}
+
+	if(measured_jets_no_nHCal.size() >= 2)
+	{
+		h_Jets_meas_eta->Fill(measured_jets_no_nHCal[0].eta(), measured_jets_no_nHCal[1].eta());
+
+		fastjet::PseudoJet jet1 = measured_jets_no_nHCal[0];
+		fastjet::PseudoJet jet2 = measured_jets_no_nHCal[1];
+
+		double jet1_p = sqrt(jet1.pt2()+jet1.pz()*jet1.pz());
+		double jet2_p = sqrt(jet2.pt2()+jet2.pz()*jet2.pz());
+
+		h_Jets_meas_no_nHCal_eta->Fill(jet1.eta(), jet2.eta());
+		h_Jets_meas_no_nHCal_phi->Fill(jet1.phi(), jet2.phi());
+		h_Jets_meas_no_nHCal_p->Fill(jet1_p, jet2_p);
+		h_Jets_meas_no_nHCal_pT->Fill(jet1.pt(), jet2.pt());
+		h_Jets_meas_no_nHCal_E->Fill(jet1.E(), jet2.E());
+	}
+
+
+
+	// measured jets vs. partons
+
+	int jetid1 = -1;
+	int jetid2 = -1;
+
+	//FindPartonJet(measured_jets, event[iParton_1], event[iParton_2], jetid1, jetid2);
+/*
+	if(jetid1 >= 0)
+	{
+		h_Jets_meas_Partons_eta->Fill(event[iParton_1].eta(), measured_jets[jetid1].eta());
+		h_Jets_meas_Partons_phi->Fill(event[iParton_1].phi(), measured_jets[jetid1].phi());
+		h_Jets_meas_Partons_E->Fill(event[iParton_1].e(), measured_jets[jetid1].E());
+
+		h_Jet_meas_Parton_eta1->Fill(event[iParton_1].eta(), measured_jets[jetid1].eta());
+		h_Jet_meas_Parton_phi1->Fill(event[iParton_1].phi(), measured_jets[jetid1].phi());
+		h_Jet_meas_Parton_E1->Fill(event[iParton_1].e(), measured_jets[jetid1].E());
+	}
+
+	if(jetid2 >= 0)
+	{
+		h_Jets_meas_Partons_eta->Fill(event[iParton_2].eta(), measured_jets[jetid2].eta());
+		h_Jets_meas_Partons_phi->Fill(event[iParton_2].phi(), measured_jets[jetid2].phi());
+		h_Jets_meas_Partons_E->Fill(event[iParton_2].e(), measured_jets[jetid2].E());
+
+		h_Jet_meas_Parton_eta2->Fill(event[iParton_2].eta(), measured_jets[jetid2].eta());
+		h_Jet_meas_Parton_phi2->Fill(event[iParton_2].phi(), measured_jets[jetid2].phi());
+		h_Jet_meas_Parton_E2->Fill(event[iParton_2].e(), measured_jets[jetid2].E());
+	}
+*/
+
+
 
 	return 1;
 

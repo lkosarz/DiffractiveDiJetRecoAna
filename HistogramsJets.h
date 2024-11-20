@@ -42,6 +42,7 @@ TH1F *h_Events_nPartonsOut;
 TH1F *h_Event_nPart_final;
 TH1F *h_Event_nJets;
 TH1F *h_Event_nJets_meas;
+TH1F *h_Event_nJets_meas_nHCal;
 TH1F *h_Event_nJets_meas_no_nHCal;
 
 TH2F *h_Event_xQ2;
@@ -197,6 +198,29 @@ TH2D *h_Jet_HCal_part_eta;
 TH2D *h_Jet_meas_HCal_part_eta;
 
 
+// Jets measured nHCal
+TH1D *h_Jet_meas_nHCal_nPart;
+TH1D *h_Jet_meas_nHCal_mass;
+TH1D *h_Jet_meas_nHCal_charge;
+TH1D *h_Jet_meas_nHCal_E;
+TH1D *h_Jet_meas_nHCal_p;
+TH1D *h_Jet_meas_nHCal_pT;
+TH1D *h_Jet_meas_nHCal_eta;
+TH1D *h_Jet_meas_nHCal_deta;
+
+TH2F *h_Jets_meas_nHCal_eta;
+TH2F *h_Jets_meas_nHCal_phi;
+TH2F *h_Jets_meas_nHCal_p;
+TH2F *h_Jets_meas_nHCal_pT;
+TH2F *h_Jets_meas_nHCal_E;
+/*
+TH1D *h_Jet_bHCal_part_eta;
+TH1D *h_Jet_meas_bHCal_part_eta;
+
+TH2D *h_Jet_HCal_part_eta;
+TH2D *h_Jet_meas_HCal_part_eta;
+*/
+
 // Jets measured without nHCal
 TH1D *h_Jet_meas_no_nHCal_nPart;
 TH1D *h_Jet_meas_no_nHCal_mass;
@@ -271,6 +295,7 @@ int CreateHistogramsJets()
 	h_Event_nPart_final = new TH1F("h_Event_nPart_final", "Number of final MC particles; N_{MC} [1]; counts", 2001, -0.5, 2000.5);
 	h_Event_nJets = new TH1F("h_Event_nJets", "Number of jets; N_{jet} [1]; counts", 21, -0.5, 20.5);
 	h_Event_nJets_meas = new TH1F("h_Event_nJets_meas", "Number of measured jets; N_{jet} [1]; counts", 21, -0.5, 20.5);
+	h_Event_nJets_meas_nHCal = new TH1F("h_Event_nJets_meas_nHCal", "Number of nHCal measured jets; N_{jet} [1]; counts", 21, -0.5, 20.5);
 	h_Event_nJets_meas_no_nHCal = new TH1F("h_Event_nJets_meas_no_nHCal", "Number of measured jets wihout nHCal; N_{jet} [1]; counts", 21, -0.5, 20.5);
 
 
@@ -538,6 +563,23 @@ int CreateHistogramsJets()
 	h_Jet_meas_HCal_part_eta->GetYaxis()->SetBinLabel(2, "nHCal");
 	h_Jet_meas_HCal_part_eta->GetYaxis()->SetBinLabel(3, "bHCal");
 	h_Jet_meas_HCal_part_eta->GetYaxis()->SetBinLabel(4, "LFHCAL");
+
+
+	// Jets measured nHCal
+	h_Jet_meas_nHCal_nPart = new TH1D("h_Jet_meas_nHCal_nPart", "Jet nHCal measured number of particles; N_{part} [1]; counts", 201, -0.5, 200.5);
+	h_Jet_meas_nHCal_mass = new TH1D("h_Jet_meas_nHCal_mass", "Jet nHCal measured mass; m [GeV/c^{2}]; counts", 2000, 0.0, 20.0);
+    h_Jet_meas_nHCal_charge = new TH1D("h_Jet_meas_nHCal_charge", "Jet nHCal measured charge; q [1]; counts", 101, -50.5, 50.5);
+	h_Jet_meas_nHCal_E = new TH1D("h_Jet_meas_nHCal_E", "Jet nHCal measured energy; E [GeV]; counts", 500, 0.0, 50.0);
+	h_Jet_meas_nHCal_p = new TH1D("h_Jet_meas_nHCal_p", "Jet nHCal measured momentum; p [GeV/c]; counts", 500, 0.0, 50.0);
+	h_Jet_meas_nHCal_pT = new TH1D("h_Jet_meas_nHCal_pT", "Jet nHCal measured transverse momentum; p_{T} [GeV/c]; counts", 500, 0.0, 50.0);
+	h_Jet_meas_nHCal_eta = new TH1D("h_Jet_meas_nHCal_eta", "Jet nHCal measured #eta; #eta [1]; counts", 200, -5.0, 5.0);
+	h_Jet_meas_nHCal_deta = new TH1D("h_Jet_meas_nHCal_deta", "Jet nHCal measured #Delta#eta; #Delta#eta [1]; counts", 400, -10.0, 10.0);
+
+	h_Jets_meas_nHCal_eta = new TH2F("h_Jets_meas_nHCal_eta", "Jets nHCal measured #eta_{1} vs. #eta_{2}; #eta_{1} [1]; #eta_{2} [1]; counts", 200, -5.0, 5.0, 200, -5.0, 5.0);
+	h_Jets_meas_nHCal_phi = new TH2F("h_Jets_meas_nHCal_phi", "Jets nHCal measured #phi_{1} vs. #phi_{2}; #phi_{1} [1]; #phi_{2} [1]; counts", 200, -2.0*TMath::Pi(), 2.0*TMath::Pi(), 200, -2.0*TMath::Pi(), 2.0*TMath::Pi());
+	h_Jets_meas_nHCal_p = new TH2F("h_Jets_meas_nHCal_p", "Jets nHCal measured p_{1} vs. p_{2}; p_{1} [GeV/c]; p_{2} [GeV/c]; counts", 200, 0.0, 20.0, 200, 0.0, 20.0);
+	h_Jets_meas_nHCal_pT = new TH2F("h_Jets_meas_nHCal_pT", "Jets nHCal measured p_{T}^{1} vs. p_{T}^{2}; p_{T}^{1} [GeV/c]; p_{T}^{2} [GeV/c]; counts", 200, 0.0, 20.0, 200, 0.0, 20.0);
+	h_Jets_meas_nHCal_E = new TH2F("h_Jets_meas_nHCal_E", "Jets nHCal measured E_{1} vs. E_{2}; E_{1} [GeV/c]; E_{2} [GeV]; counts", 200, 0.0, 20.0, 200, 0.0, 20.0);
 
 
 
