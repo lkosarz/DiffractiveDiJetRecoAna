@@ -5,6 +5,7 @@
 #include <vector>
 #include <utility>
 #include <map>
+#include <optional>
 
 #include "fmt/core.h"
 
@@ -34,6 +35,7 @@
 
 
 #include "edm4hep/utils/kinematics.h"
+#include <edm4hep/utils/vector_utils.h>
 
 #include "edm4hep/MCParticleCollection.h"
 #include "edm4hep/MCParticleCollectionData.h"
@@ -58,7 +60,10 @@
 //dd4hep::sim::Geant4Calorimeter::Hit
 
 #include "edm4eic/ReconstructedParticleCollection.h"
+#include "edm4eic/ReconstructedParticle.h"
+
 #include "edm4eic/MCRecoParticleAssociationCollection.h"
+
 
 #include "edm4eic/ClusterCollection.h"
 #include "edm4eic/Cluster.h"
@@ -69,6 +74,9 @@
 #include "edm4eic/CalorimeterHitData.h"
 #include "edm4eic/CalorimeterHit.h"
 #include "edm4eic/CalorimeterHitObj.h"
+
+#include "edm4eic/TrackSegmentCollection.h"
+#include "edm4eic/TrackPoint.h"
 
 #include "fastjet/ClusterSequence.hh"
 
@@ -125,6 +133,8 @@ using namespace fastjet;
 
 int readFrameRootReco(TString list = "data/test.list", TString ofname = "output/output_test.root", long nevents = -1);
 int MakeEvent(podio::ROOTReader *reader, unsigned ev);
+
+fastjet::PseudoJet createPseudoJet(double energy, double eta, double phi);
 
 
 bool printEvNum = true;
@@ -215,9 +225,15 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 
 	// Get collections
 	auto& MCParticles_coll  = frame.get<edm4hep::MCParticleCollection>("MCParticles");
+
+	auto& RecParticles_coll  = frame.get<edm4eic::ReconstructedParticleCollection>("ReconstructedChargedParticles");
+
 	auto& nHCal_hitscoll = frame.get<edm4eic::CalorimeterHitCollection>("HcalEndcapNRecHits");
 	auto& nHCal_Cluster_Rec_coll = frame.get<edm4eic::ClusterCollection>("HcalEndcapNClusters");
 	auto& nHCal_Cluster_MC_coll = frame.get<edm4eic::ClusterCollection>("HcalEndcapNTruthClusters");
+
+	// grab collections
+	auto& segments = frame.get<edm4eic::TrackSegmentCollection>("CalorimeterTrackProjections");
 
 	int nPartFinal = 0;
 	int nPartonsOut = 0;
@@ -329,7 +345,6 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 		//----------------------------------------------------------
 		input_particles.push_back(fastjet::PseudoJet(mcMom.x(),mcMom.y(),mcMom.z(),mcpart.getEnergy()));
 		//cout<<"input_particles add = "<<i<<endl;
-
 
 
 		h_MCpart_mass->Fill(mcpart.getMass());
@@ -701,6 +716,100 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 	    //loop over one cluster, and inner loop with all other clusters nad check distances
 
 
+
+		if(!RecParticles_coll.isValid())
+			cout<<"ReconstructedChargedParticles does not exist!"<<endl;
+
+		if(debug) cout<<"MCParticles size = "<<RecParticles_coll.size()<<endl;
+
+
+
+
+		for (unsigned rec_iter = 0; rec_iter < RecParticles_coll.size(); ++rec_iter) {
+
+			edm4eic::ReconstructedParticle recopart =  RecParticles_coll.at(rec_iter);
+
+			TVector3 recoMom(recopart.getMomentum().x, recopart.getMomentum().y, recopart.getMomentum().z);
+
+			// read in input particles
+			//----------------------------------------------------------
+			input_particles_meas.push_back(fastjet::PseudoJet(recoMom.x(),recoMom.y(),recoMom.z(),recopart.getEnergy()));
+			//cout<<"input_particles add = "<<i<<endl;
+
+			input_particles_meas_nHCal.push_back(fastjet::PseudoJet(recoMom.x(),recoMom.y(),recoMom.z(),recopart.getEnergy()));
+
+			input_particles_meas_no_nHCal.push_back(fastjet::PseudoJet(recoMom.x(),recoMom.y(),recoMom.z(),recopart.getEnergy()));
+
+		}
+
+
+		// Track-cluster projections ///////////////////////////////////////////
+
+		int nClustNotMatched = 0;
+
+		// loop over clusters
+		for (unsigned iClust = 0; iClust < nHCal_Cluster_Rec_coll.size(); ++iClust) {
+		    //for (size_t iClust = 0; edm4eic::Cluster cluster : nHCal_Cluster_Rec_coll) {
+
+			edm4eic::Cluster cluster = nHCal_Cluster_Rec_coll.at(iClust);
+
+
+		      // grab eta/phi of cluster
+		      const double etaClust  = edm4hep::utils::eta( cluster.getPosition() );
+		      const double phiClust  = edm4hep::utils::angleAzimuthal( cluster.getPosition() );
+
+		      // match based on eta/phi dstiance
+		      //double distMatch = std::numeric_limits<double>::max();
+		      double distMatch = 0.3;
+
+		      // loop over projections to find matching one
+		      std::optional<edm4eic::TrackPoint> match;
+		      for (edm4eic::TrackSegment segment : segments) {
+		        for (edm4eic::TrackPoint projection : segment.getPoints()) {
+
+		          // ignore if not pointing to calo or at face of calo, nHCal = 113
+		          const bool isInSystem = (projection.system == 113);
+		          const bool isAtFace   = (projection.surface == 1);
+		          if (!isInSystem || !isAtFace) continue;
+
+		          // grab eta/phi of projection
+		          const double etaProject = edm4hep::utils::eta( projection.position );
+		          const double phiProject = edm4hep::utils::angleAzimuthal( projection.position );
+
+		          // get distance to projection
+		          const double distProject = std::hypot(
+		            etaClust - etaProject,
+		            phiClust - phiProject
+		          );
+
+		          // if smallest distance found, update variables accordingly
+		          if (distProject < distMatch) {
+		            distMatch = distProject;
+		            match     = projection;
+		          }
+
+		        }  // end point loop
+		      }  // end segment loop
+
+
+		      // do analysis if match was found...
+		      if ( !match.has_value() ) {
+		        //edm4eic::TrackPoint matchedProject = match.value();
+		        //std::cout << "        Found match! match = " << matchedProject << std::endl;
+		        ++nClustNotMatched;
+
+
+				TVector3 cluPos(cluster.getPosition().x, cluster.getPosition().y, cluster.getPosition().z);
+
+		        input_particles_meas_nHCal.push_back(createPseudoJet(cluster.getEnergy(), cluPos.Eta(), cluPos.Phi()));
+
+		      }
+		      //++nClustTotal;
+
+
+		    }  // end cluster loop
+
+		//if(nClustNotMatched > 0)
 
 		// JETS ////////////////////////////////////////////////////////////////
 
@@ -1136,3 +1245,12 @@ int MakeEvent(podio::ROOTReader *reader, unsigned ev)
 
 }
 
+// Function to create a PseudoJet from a calorimeter cluster
+fastjet::PseudoJet createPseudoJet(double energy, double eta, double phi) {
+    double pt = energy / std::cosh(eta); // Transverse momentum
+    double px = pt * std::cos(phi);     // x-component of momentum
+    double py = pt * std::sin(phi);     // y-component of momentum
+    double pz = pt * std::sinh(eta);    // z-component of momentum
+
+    return fastjet::PseudoJet(px, py, pz, energy);
+}
